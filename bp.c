@@ -8,7 +8,7 @@
 #define SUCCESS 0
 #define FAILURE -1
 
-enum pred : char { // Char was chosen as it minimizes the memory needed.
+enum state : char { // Char was chosen as it minimizes the memory needed.
     SNT = 0,
     WNT = 1 , 
     WT = 2,
@@ -109,6 +109,9 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 		}
 		else{ //Local fsm table - multiple allocations are needed
 		    bp->fsm[i] = malloc(tableSize * sizeof(char));
+		    for(unsigned j = 0 ; j < i ; j++){
+		        bp->fsm[i][j] = fsmState; // initial default state is being set
+		    }
 		}
 		// Handle Allocation Errors
 		if (bp->fsm[i] == NULL) {
@@ -132,12 +135,12 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 }
 
 bool BP_predict(uint32_t pc, uint32_t *dst){
-
-    if(!bp->Shared || !isGlobalTable){
-        /*
-        1. using the LSBs find the corresponding index in the btb
-        2. compare the tags: match -> prediction, dismatch -> add
-        */
+    unsigned index = pc%bp->btbSize; // the corresponding row in the btb
+    if(bp->tag[index] != pc%(bp->tagSize)){
+        //replace the current tag
+    }
+    if(!bp->Shared || !bp->isGlobalTable){
+        
     }
     else{
         
