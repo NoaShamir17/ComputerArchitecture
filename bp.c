@@ -15,7 +15,7 @@ enum pred : char { // Char was chosen as it minimizes the memory needed.
     ST = 3
 };
 
-enum share : int{
+enum share : int{ // for "Shared"
     NONE = 0,
     LSB = 1, 
     MID =2
@@ -54,6 +54,9 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 	bp->isGlobalTable = isGlobalTable;
 	bp->Shared = Shared;
 	bp->tag = malloc(btbSize * sizeof(unsigned));
+	
+	int tableSize = (1<<historySize)-1;
+
 	if (bp->tag == NULL) {
 		free(bp);
 		return FAILURE;
@@ -105,7 +108,7 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 		    bp->fsm[i] = bp->fsm[0];
 		}
 		else{ //Local fsm table - multiple allocations are needed
-		    bp->fsm[i] = malloc(fsmState * sizeof(char));
+		    bp->fsm[i] = malloc(tableSize * sizeof(char));
 		}
 		// Handle Allocation Errors
 		if (bp->fsm[i] == NULL) {
@@ -124,10 +127,21 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 		}
 		bp->pred_dst[i] = 0;
 	}
-
+	
+    return SUCCESS; //At last...
 }
 
 bool BP_predict(uint32_t pc, uint32_t *dst){
+
+    if(!bp->Shared || !isGlobalTable){
+        /*
+        1. using the LSBs find the corresponding index in the btb
+        2. compare the tags: match -> prediction, dismatch -> add
+        */
+    }
+    else{
+        
+    }
 	return false;
 }
 
