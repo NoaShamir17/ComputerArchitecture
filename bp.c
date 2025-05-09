@@ -1,7 +1,9 @@
 /* 046267 Computer Architecture - HW #1                                 */
 /* This file should hold your implementation of the predictor simulator */
 
-#include "./bp_api.h"
+#include "bp_api.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 #define SUCCESS 0
 #define FAILURE -1
@@ -20,14 +22,14 @@ struct btb{
 	char **fsm;
 	uint32_t *pred_dst;
 	unsigned flush_num;
-}
+};
 
 struct btb *bp;
 
 int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned fsmState,
 			bool isGlobalHist, bool isGlobalTable, int Shared){
 
-	*bp = malloc(sizeof(struct btb));
+	bp = (struct btb*) malloc(sizeof(struct btb));
 	if (bp == NULL) {
 		return FAILURE;
 	}
@@ -109,4 +111,3 @@ void BP_GetStats(SIM_stats *curStats){
 	/*free*/
 	return;
 }
-
