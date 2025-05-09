@@ -8,7 +8,14 @@
 #define SUCCESS 0
 #define FAILURE -1
 
-struct btb{
+enum pred : char { // Char was chosen as it minimizes the memory needed.
+    SNT = 0,
+    WNT = 1 , 
+    WT = 2,
+    ST = 3
+};
+
+struct btb{ // Our own auxiliary data structure
 	unsigned btbSize;
 	unsigned historySize;
 	unsigned tagSize;
@@ -24,7 +31,7 @@ struct btb{
 	unsigned flush_num;
 };
 
-struct btb *bp;
+struct btb *bp; // Instance of the branch prediction unit
 
 int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned fsmState,
 			bool isGlobalHist, bool isGlobalTable, int Shared){
@@ -66,11 +73,18 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 		free(bp);
 		return FAILURE;
 	}
+
 	for (unsigned i = 0; i < btbSize; i++) {
 		bp->tag[i] = 0;
-		bp->history[i] = malloc(historySize * sizeof(char));
-		if (bp->history[i] == NULL) {
-			for (unsigned j = 0; j < i; j++) {
+		
+		if(isGlobalHist && i != 0){ //Global history - all pointers direct to the same history
+		    bp->history[i] = bp->history[0];
+		}
+		else{ //Local history - multiple allocations are needed
+		    bp->history[i] = malloc(historySize * sizeof(char));
+		}
+		if (bp->history[i] == NULL) {// Handle Allocation Errors
+			for (unsigned j = 0; j < i && !isGlobalHist ; j++) {
 				free(bp->history[j]);
 			}
 			free(bp->pred_dst);
@@ -80,11 +94,20 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 			free(bp);
 			return FAILURE;
 		}
-		bp->fsm[i] = malloc(fsmState * sizeof(char));
+		
+	    if(isGlobalTable && i != 0){ //Global fsm table - all pointers direct to the same history
+		    bp->fsm[i] = bp->fsm[0];
+		}
+		else{ //Local fsm table - multiple allocations are needed
+		    bp->fsm[i] = malloc(fsmState * sizeof(char));
+		}
+		// Handle Allocation Errors
 		if (bp->fsm[i] == NULL) {
-			for (unsigned j = 0; j < i; j++) {
-				free(bp->history[j]);
+			for (unsigned j = 0; j < i && !isGlobalTable; j++) {
 				free(bp->fsm[j]);
+			}
+			for (unsigned j = 0 ; j < i && !isGlobalHist; j++) {
+			    free(bp->history[j]);
 			}
 			free(bp->pred_dst);
 			free(bp->fsm);
