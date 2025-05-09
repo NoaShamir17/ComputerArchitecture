@@ -15,6 +15,12 @@ enum pred : char { // Char was chosen as it minimizes the memory needed.
     ST = 3
 };
 
+enum share : int{
+    NONE = 0,
+    LSB = 1, 
+    MID =2
+};
+
 struct btb{ // Our own auxiliary data structure
 	unsigned btbSize;
 	unsigned historySize;
