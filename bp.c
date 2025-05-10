@@ -12,20 +12,20 @@
 #define ADDRESS_SIZE 32 //as defined in the assignment's document
 #define ADDRESS_JUMP 4 //addresses jump in multiples of 4
 
-enum state : char { // fsm state was defined as an unsigned int by course staff
+enum state { // fsm state was defined as an unsigned int by course staff
     SNT = 0,
     WNT = 1 , 
     WT = 2,
     ST = 3
 };
 
-enum share : int{ // for "Shared"
+enum share { // for "Shared"
     NONE = 0,
     LSB = 1, 
     MID =2
 };
 
-enum pred : bool{
+enum pred {
     TAKEN = 1, // branch taken
     NTAKE = 0 //branch not taken
 };
