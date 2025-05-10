@@ -100,7 +100,7 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 		    bp->history[i] = bp->history[0];
 		}
 		else{ //Local history - multiple allocations are needed
-		    bp->history[i] = malloc(historySize * sizeof(char));
+		    bp->history[i] = malloc(sizeof(char));
 		}
 		if (bp->history[i] == NULL) {// Handle Allocation Errors
 			for (unsigned j = 0; j < i && !isGlobalHist ; j++) {
@@ -120,7 +120,7 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 		else{ //Local fsm table - multiple allocations are needed
 		    bp->fsm[i] = malloc(tableSize * sizeof(char));
 		    for(unsigned j = 0 ; j < i ; j++){
-		        bp->fsm[i][j] = fsmState; // initial default state is being set
+		        *(bp->fsm[i]+j) = fsmState; // initial default state is being set
 		    }
 		}
 		// Handle Allocation Errors
