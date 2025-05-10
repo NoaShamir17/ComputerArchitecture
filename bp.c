@@ -61,7 +61,7 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 	int tableSize = (1<<historySize)-1; //FSM table size is 2^historySize - 1
 
 	// Initialize the branch predictor arrays: tag, history, fsm, and pred_dst
-	bp->tag = malloc(btbSize * sizeof(*(bp->tag));
+	bp->tag = malloc(btbSize * sizeof(*(bp->tag)));
 	if (bp->tag == NULL) {
 		free(bp);
 		return FAILURE;
@@ -101,6 +101,7 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 		}
 		else{ //Local history - multiple allocations are needed
 		    bp->history[i] = malloc(sizeof(char));
+		    *(bp->history[i])=0;
 		}
 		if (bp->history[i] == NULL) {// Handle Allocation Errors
 			for (unsigned j = 0; j < i && !isGlobalHist ; j++) {
