@@ -47,7 +47,7 @@ struct btb{ // Our own auxiliary data structure
 };
 
 struct btb *bp; // Instance of the branch prediction unit
-bool prediciton;
+bool prediction;
 SIM_stats stats = {0, 0, 0}; // Instance of the simulator stats
 
 int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned fsmState,
@@ -211,13 +211,11 @@ bool BP_predict(uint32_t pc, uint32_t *dst){
     //Trivial Cases
     if(!bp->used[btb_idx]){
         *dst = pc+4;
-        prediction = NTAKE
-        break; //default
+        prediction = NTAKE; //default
     }
     if(bp->tag[btb_idx] != new_tag){ //old tag is different than the new incoming tag
         *dst = pc+4;
-        prediction= NTAKE; //default
-        break;
+        prediction = NTAKE; //default
     }
     int table_idx = calcTableIndex(pc);
     switch ((bp->fsm[btb_idx])[table_idx]){
@@ -234,7 +232,7 @@ bool BP_predict(uint32_t pc, uint32_t *dst){
         default:
             exit(1); //should never happen
     }
-    return prediction
+    return prediction;
     
 }
 char update_history(char curr_history, bool taken, unsigned historySize);
