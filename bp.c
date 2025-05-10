@@ -252,7 +252,6 @@ void BP_update(uint32_t pc, uint32_t targetPc, bool taken, uint32_t pred_dst){
     stats.br_num++;//num of calls to update
     if((prediction != taken) || ((targetPc != pred_dst) && (prediction == TAKEN))){ //flushes if the predicted destination is not equal to the actual destination
         stats.flush_num ++;
-        printf("flush #%d\n", stats.flush_num); //DEBUG
     }
     //extract the tag and index from the pc
     int btb_row_bits = (int)ceil(log2((double)bp->btbSize)); // number of bits needed to address the btb row
@@ -284,12 +283,9 @@ void BP_update(uint32_t pc, uint32_t targetPc, bool taken, uint32_t pred_dst){
 }
 
 char update_history(char curr_history, bool taken, unsigned historySize){
-    printf("history : 0x%x\n", (int)(*bp->history[0])) ; //DEBUG
 
     unsigned mask = (1 << historySize) - 1; // Create a mask to keep the history within bounds
     
-    printf("history : 0x%x\n", (int)(*bp->history[0])) ; //DEBUG
-
     // Shift the current history left by 1 and add the new taken bit
     return ((curr_history << 1) + (int)taken) & mask;
     // The mask ensures that the history remains within the specified size
@@ -298,24 +294,6 @@ char update_history(char curr_history, bool taken, unsigned historySize){
 }
 void update_fsm(char *fsm, bool taken){
     // Update the FSM state based on the current state and whether the branch was taken or not
-    printf("fsm:\n");
-    for(int i = 0 ; i < (1<<bp->historySize) ; i++){ //DEBUG
-        switch((bp->fsm[0])[i]){
-            case SNT:
-            printf("\tSN\n");
-            break;
-            case WNT:
-            printf("\tWN\n");
-            break;
-            case WT:
-            printf("\tWT\n");
-            break;
-            case ST:
-            printf("\tST\n");
-            break;
-        }
-    }
-    printf("\n");
     
     switch (*fsm) {
             case SNT:
@@ -333,25 +311,7 @@ void update_fsm(char *fsm, bool taken){
             default:
                     break; // Invalid state
     }
-    
-    printf("fsm:\n");
-    for(int i = 0 ; i < (1<<bp->historySize) ; i++){ //DEBUG
-        switch((bp->fsm[0])[i]){
-            case SNT:
-            printf("\tSN\n");
-            break;
-            case WNT:
-            printf("\tWN\n");
-            break;
-            case WT:
-            printf("\tWT\n");
-            break;
-            case ST:
-            printf("\tST\n");
-            break;
-        }
-    }
-    printf("\n");
+
 }
 
 void BP_GetStats(SIM_stats *curStats){
@@ -359,7 +319,7 @@ void BP_GetStats(SIM_stats *curStats){
     curStats->flush_num = stats.flush_num;           // Machine flushes
 	curStats->br_num = stats.br_num;     // Number of branch instructions
 
-	curStats->size = bp->btbSize*(1 + bp->tagSize + 32) +
+	curStats->size = bp->btbSize*(1 + bp->tagSize + ADDRESS_SIZE-2) +
 		(bp->isGlobalHist ? 1 : bp->btbSize) * (bp->historySize) +
 		(bp->isGlobalTable ? 1 : bp->btbSize) * 2 * (1 << bp->historySize) ;
 	
