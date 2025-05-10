@@ -120,7 +120,7 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 		}
 		else{ //Local fsm table - multiple allocations are needed
 		    bp->fsm[i] = malloc(tableSize * sizeof(char));
-		    for(unsigned j = 0 ; j < i ; j++){
+		    for(unsigned j = 0 ; j < tableSize ; j++){
 		        *(bp->fsm[i]+j) = fsmState; // initial default state is being set
 		    }
 		}
@@ -146,8 +146,8 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 }
 
 bool BP_predict(uint32_t pc, uint32_t *dst){
-    unsigned index = pc%(bp->btbSize+2)>>2; // the corresponding row in the btb
-    if(bp->tag[index] != (pc%(bp->tagSize+2)>>2)){
+    unsigned index = (pc>>2)%(bp->btbSize); // the corresponding row in the btb
+    if(bp->tag[index] != (pc>>2)%(bp->tagSize))
         //replace the current tag
     }
     if(!bp->Shared || !bp->isGlobalTable){
