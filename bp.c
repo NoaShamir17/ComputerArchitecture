@@ -67,7 +67,7 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 	bp->Shared = Shared;
 
 
-	int tableSize = (1<<historySize)-1; //FSM table size is 2^historySize - 1
+	int tableSize = (1<<historySize); //FSM table size is 2^historySize - 1
     
     //Check Input-Arguments' Validity
     if(Shared && !isGlobalTable){
@@ -204,9 +204,9 @@ int calcTableIndex(uint32_t pc){
 }
 
 bool BP_predict(uint32_t pc, uint32_t *dst){
-    unsigned btb_idx = (pc/ADDRESS_JUMP)%(bp->btbSize); // the corresponding row in the btb
+    unsigned btb_idx = (pc>>2)%(bp->btbSize); // the corresponding row in the btb
     int btb_idx_bits = (int)ceil(log2((double)bp->btbSize)); // number of bits needed to address the btb row
-    unsigned new_tag = ((pc/ADDRESS_JUMP) + btb_idx_bits)%(1<<bp->tagSize);
+    unsigned new_tag = (pc>>(2 + btb_idx_bits))%(1<<bp->tagSize);
     
     //Trivial Cases
     if(!bp->used[btb_idx]){
@@ -219,6 +219,7 @@ bool BP_predict(uint32_t pc, uint32_t *dst){
         prediction = NTAKE; //default
         return prediction;
     }
+    
     int table_idx = calcTableIndex(pc);
     switch ((bp->fsm[btb_idx])[table_idx]){
         case SNT:
@@ -255,43 +256,67 @@ void BP_update(uint32_t pc, uint32_t targetPc, bool taken, uint32_t pred_dst){
     }
     //extract the tag and index from the pc
     int btb_row_bits = (int)ceil(log2((double)bp->btbSize)); // number of bits needed to address the btb row
-    unsigned index = (pc/ADDRESS_JUMP)%(bp->btbSize); // the corresponding row in the btb
+    unsigned btb_idx = (pc/ADDRESS_JUMP)%(bp->btbSize); // the corresponding row in the btb
     unsigned curr_tag = (pc>>(btb_row_bits + 2))%(1<<bp->tagSize); // the current tag
     int tableSize = (1<<bp->historySize)-1; //FSM table size is 2^historySize - 1
     
-    printf("history : 0x%x\n", (int)(*bp->history[(index)])) ; //DEBUG
-
-    bp->used[index] = true;
-    if(bp->tag[index] != curr_tag){
+    bp->used[btb_idx] = true;
+    if(bp->tag[btb_idx] != curr_tag){
             //new branch - initialize the btb row
             //update the tag
-            bp->tag[index] = curr_tag;
+            bp->tag[btb_idx] = curr_tag;
             if(!bp->isGlobalHist){
                     //local history - initialize to zero
-                    *bp->history[index] = 0;
+                    *bp->history[btb_idx] = 0;
             }
             if(!bp->isGlobalTable){
                     //local fsm - initialize to default state
                     for(unsigned i = 0 ; i < tableSize ; i++){
-                            bp->fsm[index][i] = bp->fsmState; // initial default state is being set
+                            bp->fsm[btb_idx][i] = bp->fsmState; // initial default state is being set
                     }
             }
     }
     //update the btb row
-    bp->pred_dst[index] = targetPc;
-    *bp->history[index] = update_history(*bp->history[index], taken, bp->historySize);
-    update_fsm(&bp->fsm[index][*(bp->history[index])], taken);
+    update_fsm(&((bp->fsm[btb_idx])[calcTableIndex(pc)]), taken);
+    bp->pred_dst[btb_idx] = targetPc;
+    *bp->history[btb_idx] = update_history(*bp->history[btb_idx], taken, bp->historySize);
     return;
 }
 
 char update_history(char curr_history, bool taken, unsigned historySize){
+    printf("history : 0x%x\n", (int)(*bp->history[0])) ; //DEBUG
+
     unsigned mask = (1 << historySize) - 1; // Create a mask to keep the history within bounds
+    
+    printf("history : 0x%x\n", (int)(*bp->history[0])) ; //DEBUG
+
     // Shift the current history left by 1 and add the new taken bit
-    return (curr_history << 1) | taken & mask;
+    return ((curr_history << 1) + (int)taken) & mask;
     // The mask ensures that the history remains within the specified size
+    
+
 }
 void update_fsm(char *fsm, bool taken){
     // Update the FSM state based on the current state and whether the branch was taken or not
+    printf("fsm:\n");
+    for(int i = 0 ; i < (1<<bp->historySize) ; i++){ //DEBUG
+        switch((bp->fsm[0])[i]){
+            case SNT:
+            printf("\tSN\n");
+            break;
+            case WNT:
+            printf("\tWN\n");
+            break;
+            case WT:
+            printf("\tWT\n");
+            break;
+            case ST:
+            printf("\tST\n");
+            break;
+        }
+    }
+    printf("\n");
+    
     switch (*fsm) {
             case SNT:
                     *fsm = taken ? WNT : SNT;
@@ -308,6 +333,25 @@ void update_fsm(char *fsm, bool taken){
             default:
                     break; // Invalid state
     }
+    
+    printf("fsm:\n");
+    for(int i = 0 ; i < (1<<bp->historySize) ; i++){ //DEBUG
+        switch((bp->fsm[0])[i]){
+            case SNT:
+            printf("\tSN\n");
+            break;
+            case WNT:
+            printf("\tWN\n");
+            break;
+            case WT:
+            printf("\tWT\n");
+            break;
+            case ST:
+            printf("\tST\n");
+            break;
+        }
+    }
+    printf("\n");
 }
 
 void BP_GetStats(SIM_stats *curStats){
