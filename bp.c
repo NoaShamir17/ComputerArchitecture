@@ -145,8 +145,8 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 }
 
 bool BP_predict(uint32_t pc, uint32_t *dst){
-    unsigned index = pc%bp->btbSize; // the corresponding row in the btb
-    if(bp->tag[index] != pc%(bp->tagSize)){
+    unsigned index = pc%(bp->btbSize+2)>>2; // the corresponding row in the btb
+    if(bp->tag[index] != (pc%(bp->tagSize+2)>>2)){
         //replace the current tag
     }
     if(!bp->Shared || !bp->isGlobalTable){
