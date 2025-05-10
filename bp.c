@@ -212,19 +212,27 @@ bool BP_predict(uint32_t pc, uint32_t *dst){
     if(!bp->used[btb_idx]){
         *dst = pc+4;
         prediction = NTAKE; //default
+        return prediction;
     }
     if(bp->tag[btb_idx] != new_tag){ //old tag is different than the new incoming tag
         *dst = pc+4;
         prediction = NTAKE; //default
+        return prediction;
     }
     int table_idx = calcTableIndex(pc);
     switch ((bp->fsm[btb_idx])[table_idx]){
         case SNT:
+            *dst = pc+4;
+            prediction = NTAKE;
+            break;
         case WNT:
             *dst = pc+4;
             prediction = NTAKE;
             break;
         case WT:
+            *dst = bp->pred_dst[btb_idx];
+            prediction = TAKEN;
+            break;
         case ST:
             *dst = bp->pred_dst[btb_idx];
             prediction = TAKEN;
@@ -239,17 +247,20 @@ char update_history(char curr_history, bool taken, unsigned historySize);
 void update_fsm(char *fsm, bool taken);
 
 void BP_update(uint32_t pc, uint32_t targetPc, bool taken, uint32_t pred_dst){
-    //what pred 
     //update stats
     stats.br_num++;//num of calls to update
-    stats.flush_num += ((pred_dst != targetPc) || ((targetPc != pred_dst) && (prediction == TAKEN))); //flushes if the predicted destination is not equal to the actual destination
-    
+    if((prediction != taken) || ((targetPc != pred_dst) && (prediction == TAKEN))){ //flushes if the predicted destination is not equal to the actual destination
+        stats.flush_num ++;
+        printf("flush #%d\n", stats.flush_num); //DEBUG
+    }
     //extract the tag and index from the pc
     int btb_row_bits = (int)ceil(log2((double)bp->btbSize)); // number of bits needed to address the btb row
     unsigned index = (pc/ADDRESS_JUMP)%(bp->btbSize); // the corresponding row in the btb
     unsigned curr_tag = (pc>>(btb_row_bits + 2))%(1<<bp->tagSize); // the current tag
     int tableSize = (1<<bp->historySize)-1; //FSM table size is 2^historySize - 1
     
+    printf("history : 0x%x\n", (int)(*bp->history[(index)])) ; //DEBUG
+
     bp->used[index] = true;
     if(bp->tag[index] != curr_tag){
             //new branch - initialize the btb row
