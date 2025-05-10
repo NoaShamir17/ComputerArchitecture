@@ -8,7 +8,7 @@
 #define SUCCESS 0
 #define FAILURE -1
 
-enum state : char { // Char was chosen as it minimizes the memory needed.
+enum state : char { // fsm state was defined as an unsigned int by course staff
     SNT = 0,
     WNT = 1 , 
     WT = 2,
@@ -30,22 +30,25 @@ struct btb{ // Our own auxiliary data structure
 	bool isGlobalTable;
 	int Shared;
 
-	unsigned *tag;
-	char **history;
-	char **fsm;
-	uint32_t *pred_dst;
-	unsigned flush_num;
+	unsigned *tag; // array of tags
+	char **history; // array of pointers to history char
+	char **fsm; // array of pointers to fsm unsigned int arrays
+	uint32_t *pred_dst; // arrays of addresses
+	// unsigned flush_num;  ---> used in SIM_stats
+	// unsigned br_num;    ---> used in SIM_stats
 };
 
 struct btb *bp; // Instance of the branch prediction unit
+SIM_stats stats; // Instance of the simulator stats
 
 int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned fsmState,
 			bool isGlobalHist, bool isGlobalTable, int Shared){
-
+	// Initialize the branch predictor
 	bp = (struct btb*) malloc(sizeof(struct btb));
 	if (bp == NULL) {
 		return FAILURE;
 	}
+	// Initialize the branch predictor parameters
 	bp->btbSize = btbSize;
 	bp->historySize = historySize;
 	bp->tagSize = tagSize;
@@ -53,28 +56,33 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 	bp->isGlobalHist = isGlobalHist;
 	bp->isGlobalTable = isGlobalTable;
 	bp->Shared = Shared;
-	bp->tag = malloc(btbSize * sizeof(unsigned));
-	
-	int tableSize = (1<<historySize)-1;
 
+
+	int tableSize = (1<<historySize)-1; //FSM table size is 2^historySize - 1
+
+	// Initialize the branch predictor arrays: tag, history, fsm, and pred_dst
+	bp->tag = malloc(btbSize * sizeof(*(bp->tag));
 	if (bp->tag == NULL) {
 		free(bp);
 		return FAILURE;
 	}
-	bp->history = malloc(btbSize * sizeof(char *));
+
+	bp->history = malloc(btbSize * sizeof(*(bp->history)));
 	if (bp->history == NULL) {
 		free(bp->tag);
 		free(bp);
 		return FAILURE;
 	}
-	bp->fsm = malloc(btbSize * sizeof(char *));
+
+	bp->fsm = malloc(btbSize * sizeof(*(bp->fsm)));
 	if (bp->fsm == NULL) {
 		free(bp->history);
 		free(bp->tag);
 		free(bp);
 		return FAILURE;
 	}
-	bp->pred_dst = malloc(btbSize * sizeof(uint32_t));
+
+	bp->pred_dst = malloc(btbSize * sizeof(*(bp->pred_dst)));
 	if (bp->pred_dst == NULL) {
 		free(bp->fsm);
 		free(bp->history);
@@ -82,6 +90,8 @@ int BP_init(unsigned btbSize, unsigned historySize, unsigned tagSize, unsigned f
 		free(bp);
 		return FAILURE;
 	}
+
+
 
 	for (unsigned i = 0; i < btbSize; i++) {
 		bp->tag[i] = 0;
