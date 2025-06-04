@@ -90,16 +90,18 @@ public:
             }
         }
         // Miss: bring block in (captures eviction), then mark it dirty
-        load_block(address, evicted_tag, was_dirty);
-        // Mark newly loaded block as dirty
-        unsigned idx2 = get_index(address);
-        unsigned tg2  = get_tag(address);
-        for (auto& blk : sets[idx2]) {
-            if (blk.valid && blk.tag == tg2) {
-                blk.dirty = true;
-                return false;
-            }
+        if(write_allocate) {
+            load_block(address, evicted_tag, was_dirty);
         }
+        // Mark newly loaded block as dirty
+        // unsigned idx2 = get_index(address);
+        // unsigned tg2  = get_tag(address);
+        // for (auto& blk : sets[idx2]) {
+        //     if (blk.valid && blk.tag == tg2) {
+        //         blk.dirty = true;
+        //         return false;
+        //     }
+        // }
         return false;
     }
 
@@ -158,22 +160,8 @@ public:
     // Give Cache access to internal fields for address computation
     friend class Cache;
 
-    // Lightweight write used when write-allocate is OFF.
-    //   If the block exists -> mark dirty, update LRU, return true.
-    //   Else return false (do NOT allocate).
-    bool write_no_allocate(unsigned address) {
-        ++global_clock;
-        unsigned idx = get_index(address);
-        unsigned tg  = get_tag(address);
-        for (auto &blk : sets[idx]) {
-            if (blk.valid && blk.tag == tg) {
-                blk.dirty = true;
-                blk.lastAccess = global_clock;
-                return true; // hit, no allocation needed
-            }
-        }
-        return false; // miss, nothing installed
-    }
+    
+
 
 private:
     // Compute set index from address
@@ -239,12 +227,17 @@ private:
         ++l1_misses;
         total_access_time += L1->access_time;
 
-        // If L1 evicted a dirty block, push it to L2 (write-back)
+        // If L1 evicted a dirty block, update the block in L2 (mark it dirty and update LRU)
         if (was_dirty) {
             unsigned ev_addr = ((evicted_tag * L1->num_sets) + L1->get_index(address)) * L1->block_size;
-            unsigned tmp_tag;
-            bool tmp_dirty;
-            L2->write(ev_addr, tmp_tag, tmp_dirty);
+            unsigned idx = L2->get_index(ev_addr);
+            unsigned tg  = L2->get_tag(ev_addr);
+            for (auto &blk : L2->sets[idx]) {
+                if (blk.valid && blk.tag == tg) {
+                    blk.dirty = true;
+                    blk.lastAccess = CacheLevel::global_clock;
+                }
+            }
         }
 
         // 2) Try L2
@@ -255,7 +248,7 @@ private:
             // Load the block into L1 (inclusive)
             unsigned tmp_tag2;
             bool tmp_dirty2;
-            L1->load_block(address, tmp_tag2, tmp_dirty2);
+            L1->load_block(address, tmp_tag2, tmp_dirty2); // is this because we need to update LRU?- bc we already loaded the block in L1->read
             return;
         }
         // L2 miss: record stats and add L2 + memory times
@@ -482,4 +475,6 @@ using chat's
     only to highest level
 
 5 ) Use CacheSim.cpp instead of main
+
+6 ) check if get_index and get_tag should be public or private
 */
