@@ -96,15 +96,7 @@ public:
         if(write_allocate) {
             load_block(address, evicted_tag, was_dirty, was_evicted);
         }
-        // Mark newly loaded block as dirty
-        // unsigned idx2 = get_index(address);
-        // unsigned tg2  = get_tag(address);
-        // for (auto& blk : sets[idx2]) {
-        //     if (blk.valid && blk.tag == tg2) {
-        //         blk.dirty = true;
-        //         return false;
-        //     }
-        // }
+    
         return false;
     }
 
@@ -256,10 +248,6 @@ private:
         if (L2->read(address, evicted_tag2, was_dirty2, was_evicted2)) {
             total_access_time += L2->access_time;  // Hit in L2
             ++l2_hits;  // Increment L2 hit count
-            // Load the block into L1 (inclusive) - the block is already loaded in L1->read
-            // unsigned tmp_tag2;
-            // bool tmp_dirty2;
-            // L1->load_block(address, tmp_tag2, tmp_dirty2); // is this because we need to update LRU?- bc we already loaded the block in L1->read
             return;
         }
         // L2 miss: record stats and add L2 + memory times
@@ -277,11 +265,7 @@ private:
             L1->invalidate(ev_addr2);
         }
 
-        // 3) Fetch from memory, install in L2 then install in L1 - no need bc we already loaded in L1->read L2->read
-        // unsigned tmp_tag3;
-        // bool tmp_dirty3;
-        // L2->load_block(address, tmp_tag3, tmp_dirty3);
-        // L1->load_block(address, tmp_tag3, tmp_dirty3);
+        
     }
 
     // Handle a write to address
@@ -320,10 +304,7 @@ private:
         if (L2->write(address, evicted_tag2, was_dirty2, was_evicted2)) {
             total_access_time += L2->access_time;  // Hit in L2
             ++l2_hits;  // Increment L2 hit count
-            // Load the block into L1 (inclusive) - the block is already loaded in L1->read
-            // unsigned tmp_tag2;
-            // bool tmp_dirty2;
-            // L1->load_block(address, tmp_tag2, tmp_dirty2); // is this because we need to update LRU?- bc we already loaded the block in L1->read
+
             return;
         }
         // L2 miss: record stats and add L2 + memory times
@@ -353,122 +334,3 @@ private:
 };
 
 
-/*
-// ---------------------- main() + CLI + Trace Loop ----------------------
-
-// Print usage and exit if arguments are incorrect
-static void usage_and_exit(const char* progname) {
-    std::cerr << "Usage: " << progname
-              << " <trace_file> --mem-cyc <num> --bsize <log2(block)>"
-                 " --wr-alloc <0|1> --l1-size <log2(size)> --l1-assoc <log2(ways)>"
-                 " --l1-cyc <num> --l2-size <log2(size)> --l2-assoc <log2(ways)>"
-                 " --l2-cyc <num>\n";
-    std::exit(1);
-}
-
-
-
-int main(int argc, char** argv) {
-    if (argc != 17) usage_and_exit(argv[0]);
-
-    // Variables to hold parsed parameters
-    std::string trace_file;
-    unsigned mem_cyc = 0;
-    int bsize      = -1;
-    int wr_alloc   = -1;
-    int l1_size    = -1, l1_assoc = -1, l1_cyc = -1;
-    int l2_size    = -1, l2_assoc = -1, l2_cyc = -1;
-
-    // First argument is trace file name
-    trace_file = argv[1];
-    // Parse flags in pairs: flag name + value
-    for (int i = 2; i < argc; i += 2) {
-        if      (!strcmp(argv[i], "--mem-cyc")) mem_cyc = std::stoi(argv[i+1]);
-        else if (!strcmp(argv[i], "--bsize"))   bsize   = std::stoi(argv[i+1]);
-        else if (!strcmp(argv[i], "--wr-alloc")) wr_alloc = std::stoi(argv[i+1]);
-        else if (!strcmp(argv[i], "--l1-size"))  l1_size  = std::stoi(argv[i+1]);
-        else if (!strcmp(argv[i], "--l1-assoc")) l1_assoc = std::stoi(argv[i+1]);
-        else if (!strcmp(argv[i], "--l1-cyc"))   l1_cyc   = std::stoi(argv[i+1]);
-        else if (!strcmp(argv[i], "--l2-size"))  l2_size  = std::stoi(argv[i+1]);
-        else if (!strcmp(argv[i], "--l2-assoc")) l2_assoc = std::stoi(argv[i+1]);
-        else if (!strcmp(argv[i], "--l2-cyc"))   l2_cyc   = std::stoi(argv[i+1]);
-        else usage_and_exit(argv[0]);
-    }
-    // Validate presence of all flags
-    if (bsize < 0 || wr_alloc < 0 || l1_size < 0 || l1_assoc < 0
-     || l1_cyc < 0 || l2_size < 0 || l2_assoc < 0 || l2_cyc < 0) {
-        usage_and_exit(argv[0]);
-    }
-
-    // Convert log2 parameters into actual sizes/ways
-    unsigned block_size = 1U << bsize;      // e.g., bsize=5 → block_size=32
-    unsigned L1_bytes   = 1U << l1_size;     // e.g., l1_size=16 → L1 size = 64 KB
-    unsigned L1_ways    = 1U << l1_assoc;    // e.g., l1_assoc=3 → 8-way
-    unsigned L2_bytes   = 1U << l2_size;
-    unsigned L2_ways    = 1U << l2_assoc;
-
-    // Create L1 and L2 cache objects
-    CacheLevel* L1 = new CacheLevel(L1_bytes, block_size, L1_ways, l1_cyc);
-    CacheLevel* L2 = new CacheLevel(L2_bytes, block_size, L2_ways, l2_cyc);
-
-    // Create top-level Cache coordinator
-    Cache topCache(L1, L2, mem_cyc, (wr_alloc == 1));
-
-    // Open trace file for reading
-    std::ifstream fin(trace_file);
-    if (!fin) {
-        std::cerr << "Error: cannot open trace file " << trace_file << "\n";
-        return 1;
-    }
-
-    // Iterate through each line: 'r 0xADDRESS' or 'w 0xADDRESS'
-    char op;
-    std::string hexaddr;
-    while (fin >> op >> hexaddr) {
-        unsigned addr = std::stoul(hexaddr, nullptr, 16); // convert hex to unsigned
-        bool is_write = (op == 'w');
-        topCache.access(is_write, addr);
-    }
-    fin.close();
-
-    // Compute statistics: L1 miss rate, L2 miss rate, average access time
-    double L1miss_rate = double(topCache.l1_misses) / topCache.total_accesses;
-    double L2miss_rate = 0.0;
-    if (topCache.l1_misses > 0) {
-        L2miss_rate = double(topCache.l2_misses) / topCache.l1_misses;
-    }
-    double avg_time = double(topCache.total_access_time) / topCache.total_accesses;
-
-    
-
-    // Print final result in exact format
-    std::cout << "L1miss=" << std::fixed << std::setprecision(3)
-              << L1miss_rate
-              << " L2miss=" << L2miss_rate
-              << " AccTimeAvg=" << avg_time
-              << "";
-
-    return 0;
-}
-
-
-*/
-
-
-/*
-TODO:
-1 ) Delete main, use CachSim file instead, 
-remember to make the conversion size->2^size when calling Cache
-
-2 ) Check for writing back dirty bits before eviction for all special cases
-using chat's
-
-3 ) Should have a single write function that takes into account the allocation.
-
-4 ) On write-allocate we pull the old information along all levels but apply update (writing)
-    only to highest level
-
-5 ) Use CacheSim.cpp instead of main
-
-6 ) check if get_index and get_tag should be public or private
-*/
