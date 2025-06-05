@@ -9,7 +9,7 @@
 #include <cstdlib>   // for std::stoul
 
 // Global constant used as a practical "infinite" timestamp for LRU comparisons
-constexpr unsigned INFTY = (1u << 32) - 1;  // 0xFFFFFFFF
+constexpr unsigned INFTY = (1u << 31) - 1; // 2^31 - 1, large enough for practical purposes
 
 // ---------------------- Block & CacheLevel ----------------------
 
@@ -35,6 +35,7 @@ public:
     unsigned assoc;       // Number of ways (fully associative if equals num lines per set)
     unsigned access_time; // Access latency (cycles)
     unsigned num_sets;    // Number of sets in cache (size / (block_size * assoc))
+    bool write_allocate; // Write-allocate policy (true = allocate on write miss)
 
     // 2D array: sets[set_index][way_index] gives a Block
     std::vector<std::vector<Block>> sets;
@@ -42,8 +43,8 @@ public:
     static unsigned global_clock; // Monotonically increasing timestamp for LRU
 
     // Constructor: compute number of sets and allocate vector of sets
-    CacheLevel(unsigned size_, unsigned block_size_, unsigned assoc_, unsigned access_time_)
-        : size(size_), block_size(block_size_), assoc(assoc_), access_time(access_time_) 
+    CacheLevel(unsigned size_, unsigned block_size_, unsigned assoc_, unsigned access_time_, bool write_allocate_)
+        : size(size_), block_size(block_size_), assoc(assoc_), access_time(access_time_), write_allocate(write_allocate_)
     {
         unsigned blocks = size / block_size;      // total blocks in this cache
         num_sets = blocks / assoc;                // sets = total blocks / ways
@@ -55,7 +56,8 @@ public:
     //   address: full memory address
     //   evicted_tag/was_dirty: references to capture eviction info if miss occurs
     // Returns true on hit, false on miss (and calls load_block to bring block in).
-    bool read(unsigned address, unsigned& evicted_tag, bool& was_dirty) {
+    bool read(unsigned address, unsigned& evicted_tag, bool& was_dirty, bool& was_evicted) {
+        was_evicted = false;                             // Initialize eviction flag
         ++global_clock;                                  // increment global LRU clock
         unsigned idx = get_index(address);               // calculate set index
         unsigned tg  = get_tag(address);                 // extract tag
@@ -69,13 +71,14 @@ public:
             }
         }
         // Cache miss: load block (possibly evict LRU) and capture eviction info
-        load_block(address, evicted_tag, was_dirty);
+        load_block(address, evicted_tag, was_dirty, was_evicted);
         return false;
     }
 
     // wr: Attempt to write to this cache level.
     //   On hit, set dirty bit. On miss, load then mark dirty.
-    bool write(unsigned address, unsigned& evicted_tag, bool& was_dirty) {
+    bool write(unsigned address, unsigned& evicted_tag, bool& was_dirty, bool& was_evicted) {
+        was_evicted = false;                             // Initialize eviction flag
         ++global_clock;
         unsigned idx = get_index(address);
         unsigned tg  = get_tag(address);
@@ -89,9 +92,9 @@ public:
                 return true;
             }
         }
-        // Miss: bring block in (captures eviction), then mark it dirty
+        // Miss: if write allocate, bring block in (captures eviction)
         if(write_allocate) {
-            load_block(address, evicted_tag, was_dirty);
+            load_block(address, evicted_tag, was_dirty, was_evicted);
         }
         // Mark newly loaded block as dirty
         // unsigned idx2 = get_index(address);
@@ -108,7 +111,7 @@ public:
     // Evicts one block based on LRU or chooses an invalid slot if available.
     //   address: address to insert
     //   evicted_tag/was_dirty: set to info about evicted block (if valid)
-    void load_block(unsigned address, unsigned& evicted_tag, bool& was_dirty) {
+    void load_block(unsigned address, unsigned& evicted_tag, bool& was_dirty, bool& was_evicted) {
         unsigned idx = get_index(address);
         unsigned tg  = get_tag(address);
         auto& set = sets[idx];
@@ -130,9 +133,11 @@ public:
         }
         // Capture eviction info if block is valid
         if (set[lru_idx].valid) {
+            was_evicted = true;  // A valid block was evicted
             evicted_tag = set[lru_idx].tag;
             was_dirty   = set[lru_idx].dirty;
         } else {
+            was_evicted = false; // No valid block was evicted
             evicted_tag = 0;
             was_dirty   = false;
         }
@@ -188,7 +193,9 @@ public:
     bool        write_allocate; // If true, use write-allocate policy on write misses
 
     unsigned l1_misses = 0;    // Number of L1 misses
+    unsigned l1_hits = 0;       // Number of L1 hits
     unsigned l2_misses = 0;    // Number of L2 misses
+    unsigned l2_hits = 0;       // Number of L2 hits
     unsigned total_accesses = 0;     // Total number of memory accesses
     unsigned total_access_time = 0;  // Sum of access time for each request
 
@@ -213,14 +220,16 @@ public:
     }
 
 private:
-    // Handle a read from address
+    // Handle a 'read' from address
     void handle_read(unsigned address) {
         unsigned evicted_tag;
         bool was_dirty;
+        bool was_evicted;
 
         // 1) Try L1
-        if (L1->read(address, evicted_tag, was_dirty)) {
+        if (L1->read(address, evicted_tag, was_dirty, was_evicted)) {
             total_access_time += L1->access_time;
+            ++l1_hits;  // Increment L1 hit count
             return;  // Hit in L1
         }
         // L1 miss: record stats and add L1 access time
@@ -228,7 +237,7 @@ private:
         total_access_time += L1->access_time;
 
         // If L1 evicted a dirty block, update the block in L2 (mark it dirty and update LRU)
-        if (was_dirty) {
+        if (was_evicted && was_dirty) {
             unsigned ev_addr = ((evicted_tag * L1->num_sets) + L1->get_index(address)) * L1->block_size;
             unsigned idx = L2->get_index(ev_addr);
             unsigned tg  = L2->get_tag(ev_addr);
@@ -243,12 +252,14 @@ private:
         // 2) Try L2
         unsigned evicted_tag2;
         bool was_dirty2;
-        if (L2->read(address, evicted_tag2, was_dirty2)) {
+        bool was_evicted2;
+        if (L2->read(address, evicted_tag2, was_dirty2, was_evicted2)) {
             total_access_time += L2->access_time;  // Hit in L2
-            // Load the block into L1 (inclusive)
-            unsigned tmp_tag2;
-            bool tmp_dirty2;
-            L1->load_block(address, tmp_tag2, tmp_dirty2); // is this because we need to update LRU?- bc we already loaded the block in L1->read
+            ++l2_hits;  // Increment L2 hit count
+            // Load the block into L1 (inclusive) - the block is already loaded in L1->read
+            // unsigned tmp_tag2;
+            // bool tmp_dirty2;
+            // L1->load_block(address, tmp_tag2, tmp_dirty2); // is this because we need to update LRU?- bc we already loaded the block in L1->read
             return;
         }
         // L2 miss: record stats and add L2 + memory times
@@ -256,116 +267,93 @@ private:
         total_access_time += L2->access_time + mem_cycles;
 
         // If L2 evicted a dirty block, assume write-back to memory happens
-        if (was_dirty2) {
+        if (was_evicted2 && was_dirty2) {
             // No additional latency counted
         }
         // Inclusive policy: if L2 evicted something, remove it from L1 as well
-        if (L2->sets.empty() == false && evicted_tag2) {
+        if (L2->sets.empty() == false && was_evicted2) {
+            // Invalidate the corresponding block in L1
             unsigned ev_addr2 = ((evicted_tag2 * L2->num_sets) + L2->get_index(address)) * L2->block_size;
             L1->invalidate(ev_addr2);
         }
 
-        // 3) Fetch from memory, install in L2 then install in L1
-        unsigned tmp_tag3;
-        bool tmp_dirty3;
-        L2->load_block(address, tmp_tag3, tmp_dirty3);
-        L1->load_block(address, tmp_tag3, tmp_dirty3);
+        // 3) Fetch from memory, install in L2 then install in L1 - no need bc we already loaded in L1->read L2->read
+        // unsigned tmp_tag3;
+        // bool tmp_dirty3;
+        // L2->load_block(address, tmp_tag3, tmp_dirty3);
+        // L1->load_block(address, tmp_tag3, tmp_dirty3);
     }
 
     // Handle a write to address
     void handle_write(unsigned address) {
-        // Branch depending on write-allocate policy
-        if (!write_allocate) {
-            // -------- No‑Write‑Allocate path --------
-            ++total_accesses; // already counted in access()
-            unsigned idxL1 = L1->get_index(address);
-            unsigned tgL1  = L1->get_tag(address);
-
-            // 1) Check L1 hit manually (without allocating)
-            bool l1_hit = false;
-            for (auto &blk : L1->sets[idxL1]) {
-                if (blk.valid && blk.tag == tgL1) {
-                    blk.dirty = true;
-                    blk.lastAccess = ++CacheLevel::global_clock;
-                    l1_hit = true;
-                    break;
-                }
-            }
-            if (l1_hit) {
-                total_access_time += L1->access_time;
-                return;
-            }
-            // L1 miss
-            ++l1_misses;
-            total_access_time += L1->access_time;
-
-            // 2) Check L2 hit without allocating in L1
-            if (L2->write_no_allocate(address)) {
-                total_access_time += L2->access_time;
-                return; // update done in L2 only
-            }
-            // 3) Miss in both levels -> write directly to memory
-            ++l2_misses;
-            total_access_time += L2->access_time + mem_cycles;
-            return;
-        }
-
-        // -------- Write‑Allocate path --------
         unsigned evicted_tag;
         bool was_dirty;
+        bool was_evicted;
 
-        // 1) Try L1 write (will allocate on miss inside CacheLevel)
-        if (L1->write(address, evicted_tag, was_dirty)) {
+        // 1) Try L1
+        if (L1->write(address, evicted_tag, was_dirty, was_evicted)) {
             total_access_time += L1->access_time;
+            ++l1_hits;  // Increment L1 hit count
             return;  // Hit in L1
         }
-        // L1 miss
+        // L1 miss: record stats and add L1 access time
         ++l1_misses;
         total_access_time += L1->access_time;
 
-        // If L1 evicted a dirty block, push it to L2
-        if (was_dirty) {
+        // If L1 evicted a dirty block, update the block in L2 (mark it dirty and update LRU)
+        if (was_evicted && was_dirty) {
             unsigned ev_addr = ((evicted_tag * L1->num_sets) + L1->get_index(address)) * L1->block_size;
-            unsigned tmp_tag;
-            bool tmp_dirty;
-            L2->write(ev_addr, tmp_tag, tmp_dirty);
+            unsigned idx = L2->get_index(ev_addr);
+            unsigned tg  = L2->get_tag(ev_addr);
+            for (auto &blk : L2->sets[idx]) {
+                if (blk.valid && blk.tag == tg) {
+                    blk.dirty = true;
+                    blk.lastAccess = CacheLevel::global_clock;
+                }
+            }
         }
 
-        // 2) Try L2 write (allocates in L2)
+        // 2) Try L2
         unsigned evicted_tag2;
         bool was_dirty2;
-        if (L2->write(address, evicted_tag2, was_dirty2)) {
-            total_access_time += L2->access_time;
-            // Bring block into L1 and mark dirty
-            unsigned tmp_tag2;
-            bool tmp_dirty2;
-            L1->load_block(address, tmp_tag2, tmp_dirty2);
-            L1->write(address, tmp_tag2, tmp_dirty2);
+        bool was_evicted2;
+        if (L2->write(address, evicted_tag2, was_dirty2, was_evicted2)) {
+            total_access_time += L2->access_time;  // Hit in L2
+            ++l2_hits;  // Increment L2 hit count
+            // Load the block into L1 (inclusive) - the block is already loaded in L1->read
+            // unsigned tmp_tag2;
+            // bool tmp_dirty2;
+            // L1->load_block(address, tmp_tag2, tmp_dirty2); // is this because we need to update LRU?- bc we already loaded the block in L1->read
             return;
         }
-        // L2 miss
+        // L2 miss: record stats and add L2 + memory times
         ++l2_misses;
         total_access_time += L2->access_time + mem_cycles;
 
-        // If L2 evicted a dirty block, assume write-back to memory
-        if (was_dirty2) {
-            // No additional latency
+        // If L2 evicted a dirty block, assume write-back to memory happens
+        if (was_evicted2 && was_dirty2) {
+            // No additional latency counted
         }
-        // Inclusive policy: invalidate in L1 if L2 evicted a block
-        if (L2->sets.empty() == false && evicted_tag2) {
+        // Inclusive policy: if L2 evicted something, remove it from L1 as well
+        if (L2->sets.empty() == false && was_evicted2) {
+            // Invalidate the corresponding block in L1
             unsigned ev_addr2 = ((evicted_tag2 * L2->num_sets) + L2->get_index(address)) * L2->block_size;
             L1->invalidate(ev_addr2);
         }
 
-        // Fetch line from memory into L2 and then L1, then perform write
-        unsigned tmp_tag3;
-        bool tmp_dirty3;
-        L2->load_block(address, tmp_tag3, tmp_dirty3);
-        L1->load_block(address, tmp_tag3, tmp_dirty3);
-        L1->write(address, tmp_tag3, tmp_dirty3);
+        // miss in both caches, so if write-allocate, mark the block as dirty in L1
+        if (write_allocate) {
+            unsigned tmp_tag3;
+            bool tmp_dirty3;
+            bool tmp_was_evicted3;
+            //will definitely write hit, because we just loaded the block in L1->write
+            L1->write(address, tmp_tag3, tmp_dirty3, tmp_was_evicted3); // write hit - mark dirty
+        }
     }
 };
 
+
+/*
 // ---------------------- main() + CLI + Trace Loop ----------------------
 
 // Print usage and exit if arguments are incorrect
@@ -377,6 +365,8 @@ static void usage_and_exit(const char* progname) {
                  " --l2-cyc <num>\n";
     std::exit(1);
 }
+
+
 
 int main(int argc, char** argv) {
     if (argc != 17) usage_and_exit(argv[0]);
@@ -460,6 +450,10 @@ int main(int argc, char** argv) {
 
     return 0;
 }
+
+
+*/
+
 
 /*
 TODO:
